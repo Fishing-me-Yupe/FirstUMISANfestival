@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Side Scroll Athletic</title>
+<style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    overflow: hidden;
+    background: #4db8ff;
+    font-family: sans-serif;
+  }
+
+  canvas {
+    display: block;
+    background: linear-gradient(#4db8ff, #87d7ff);
+  }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+const gravity = 0.8;
+const worldWidth = 7000;
+
+let gameOver = false;
+let cameraX = 0;
+
+const keys = {};
+
+const player = {
+  x: 100,
+  y: 200,
+  width: 40,
+  height: 40,
+  vx: 0,
+  vy: 0,
+  speed: 5,
+  jumpPower: -15,
+  grounded: false
+};
+
+const clouds = [];
+for(let i = 0; i < 30; i++) {
+  clouds.push({
+    x: Math.random() * worldWidth,
+    y: Math.random() * 250,
+    size: 50 + Math.random() * 80
+  });
+}
+
+const platforms = [
+  {x:0,y:600,w:1000,h:100},
+  {x:1200,y:550,w:300,h:50},
+  {x:1700,y:480,w:250,h:50},
+  {x:2100,y:420,w:220,h:50},
+  {x:2500,y:550,w:500,h:50},
+  {x:3300,y:470,w:200,h:50},
+  {x:3700,y:380,w:200,h:50},
+  {x:4200,y:520,w:700,h:50},
+  {x:5200,y:450,w:250,h:50},
+  {x:5700,y:350,w:250,h:50},
+  {x:6300,y:600,w:700,h:100}
+];
+
+const lava = [
+  {x:1000,y:700,w:200,h:200},
+  {x:1950,y:700,w:150,h:200},
+  {x:3000,y:700,w:300,h:200},
+  {x:4900,y:700,w:250,h:200}
+];
+
+const shurikens = [
+  {
+    x: 2800,
+    y: 300,
+    size: 35,
+    speed: 5,
+    dir: -1,
+    range: 350,
+    startX: 2800
+  },
+  {
+    x: 4600,
+    y: 250,
+    size: 45,
+    speed: 7,
+    dir: -1,
+    range: 500,
+    startX: 4600
+  }
+];
+
+window.addEventListener("keydown", e => {
+  keys[e.key] = true;
+
+  if((e.key === " " || e.key === "ArrowUp") && player.grounded) {
+    player.vy = player.jumpPower;
+    player.grounded = false;
+  }
+
+  if(gameOver && e.key === "r") {
+    location.reload();
+  }
+});
+
+window.addEventListener("keyup", e => {
+  keys[e.key] = false;
+});
+
+function rectCollision(a, b) {
+  return (
+    a.x < b.x + b.w &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.height > b.y
+  );
+}
+
+function drawCloud(x, y, size) {
+  ctx.fillStyle = "white";
+
+  ctx.beginPath();
+  ctx.arc(x, y, size * 0.3, 0, Math.PI * 2);
+  ctx.arc(x + size * 0.25, y - 10, size * 0.35, 0, Math.PI * 2);
+  ctx.arc(x + size * 0.55, y, size * 0.3, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawWoodPlatform(p) {
+  ctx.fillStyle = "#8b5a2b";
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+
+  ctx.strokeStyle = "#5c3317";
+  ctx.lineWidth = 3;
+
+  for(let i = 0; i < p.w; i += 50) {
+    ctx.strokeRect(p.x + i, p.y, 50, p.h);
+
+    ctx.beginPath();
+    ctx.moveTo(p.x + i + 10, p.y + 5);
+    ctx.lineTo(p.x + i + 40, p.y + p.h - 5);
+    ctx.stroke();
+  }
+}
+
+function drawLava(l) {
+  const grad = ctx.createLinearGradient(l.x, l.y, l.x, l.y + l.h);
+  grad.addColorStop(0, "#ff6600");
+  grad.addColorStop(1, "#ff0000");
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(l.x, l.y, l.w, l.h);
+
+  ctx.fillStyle = "rgba(255,255,0,0.5)";
+
+  for(let i = 0; i < l.w; i += 30) {
+    ctx.beginPath();
+    ctx.arc(l.x + i, l.y + Math.sin(Date.now()*0.005+i)*5, 8, 0, Math.PI*2);
+    ctx.fill();
+  }
+}
+
+function drawShuriken(s) {
+  ctx.save();
+  ctx.translate(s.x + s.size/2, s.y + s.size/2);
+  ctx.rotate(Date.now() * 0.01);
+
+  ctx.fillStyle = "#666";
+
+  for(let i = 0; i < 4; i++) {
+    ctx.rotate(Math.PI / 2);
+    ctx.beginPath();
+    ctx.moveTo(0, -s.size/2);
+    ctx.lineTo(8, 0);
+    ctx.lineTo(0, s.size/2);
+    ctx.lineTo(-8, 0);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#222";
+  ctx.beginPath();
+  ctx.arc(0, 0, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function update() {
+  if(gameOver) return;
+
+  player.vx = 0;
+
+  if(keys["ArrowLeft"] || keys["a"]) {
+    player.vx = -player.speed;
+  }
+
+  if(keys["ArrowRight"] || keys["d"]) {
+    player.vx = player.speed;
+  }
+
+  player.vy += gravity;
+
+  player.x += player.vx;
+  player.y += player.vy;
+
+  player.grounded = false;
+
+  for(const p of platforms) {
+    if(
+      player.x < p.x + p.w &&
+      player.x + player.width > p.x &&
+      player.y + player.height < p.y + 20 &&
+      player.y + player.height + player.vy >= p.y
+    ) {
+      player.y = p.y - player.height;
+      player.vy = 0;
+      player.grounded = true;
+    }
+  }
+
+  for(const l of lava) {
+    if(rectCollision(player, l)) {
+      gameOver = true;
+    }
+  }
+
+  for(const s of shurikens) {
+    s.x += s.speed * s.dir;
+
+    if(Math.abs(s.x - s.startX) > s.range) {
+      s.dir *= -1;
+    }
+
+    if(
+      player.x < s.x + s.size &&
+      player.x + player.width > s.x &&
+      player.y < s.y + s.size &&
+      player.y + player.height > s.y
+    ) {
+      gameOver = true;
+    }
+  }
+
+  if(player.y > canvas.height + 300) {
+    gameOver = true;
+  }
+
+  cameraX = player.x - canvas.width / 3;
+
+  if(cameraX < 0) cameraX = 0;
+  if(cameraX > worldWidth - canvas.width) {
+    cameraX = worldWidth - canvas.width;
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.save();
+  ctx.translate(-cameraX, 0);
+
+  for(const c of clouds) {
+    drawCloud(c.x, c.y, c.size);
+  }
+
+  for(const p of platforms) {
+    drawWoodPlatform(p);
+  }
+
+  for(const l of lava) {
+    drawLava(l);
+  }
+
+  for(const s of shurikens) {
+    drawShuriken(s);
+  }
+
+  ctx.fillStyle = "black";
+  ctx.fillRect(player.x, player.y, player.width, player.height);
+
+  ctx.restore();
+
+  ctx.fillStyle = "white";
+  ctx.font = "24px sans-serif";
+  ctx.fillText("←→: 移動  SPACE: ジャンプ", 20, 40);
+
+  if(gameOver) {
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    ctx.fillStyle = "red";
+    ctx.font = "80px sans-serif";
+    ctx.fillText("GAME OVER", canvas.width/2 - 250, canvas.height/2);
+
+    ctx.fillStyle = "white";
+    ctx.font = "32px sans-serif";
+    ctx.fillText("Rキーでリスタート", canvas.width/2 - 140, canvas.height/2 + 70);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
